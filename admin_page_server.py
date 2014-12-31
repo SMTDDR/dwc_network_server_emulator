@@ -95,12 +95,10 @@ class AdminPage(resource.Resource):
                 ingamesn = str(nasdata['devname'])
             if ingamesn:
                 ingamesn = gs_utils.base64_decode(ingamesn)
-                ingamesn = base64.urlsafe_b64decode(ingamesn)
                 if is_console:
                     ingamesn = codecs.utf_16_be_decode(ingamesn)[0]
                 else:
                     ingamesn = codecs.utf_16_le_decode(ingamesn)[0]
-                ingamesn = codecs.utf_8_encode(ingamesn)[0].strip()
             else:
                 ingamesn = '[NOT AVAILABLE]'
             responsedata += "<tr>"
@@ -124,7 +122,8 @@ class AdminPage(resource.Resource):
                 "<input type='submit' value='----- unban -----'></form></td>")
         responsedata += "</tr></table></html>" 
         dbconn.close()
-        return responsedata
+        request.setHeader("Content-Type", "text/html; charset=utf-8")
+        return responsedata.encode('utf-8')
 
     def render_POST(self, request):
         if not self.is_authorized(request):
