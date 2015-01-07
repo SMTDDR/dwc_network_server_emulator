@@ -8,6 +8,7 @@ from twisted.internet.error import ReactorAlreadyRunning
 import base64
 import codecs 
 import sqlite3
+import collections
 import json
 import time
 import datetime
@@ -83,7 +84,7 @@ class AdminPage(resource.Resource):
         for row in dbconn.cursor().execute(sqlstatement):
             dwc_pid = str(row[0])
             enabled = str(row[1])
-            nasdata = json.loads(row[2])
+            nasdata = collections.defaultdict(lambda: '', json.loads(row[2]))
             gameid = str(row[3])
             is_console = int(str(row[4]))
             userid = str(row[5])
