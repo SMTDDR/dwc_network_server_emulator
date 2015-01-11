@@ -26,7 +26,17 @@ logger = utils.create_logger(logger_name, logger_filename, -1, logger_output_to_
 #
 # NOTE: Must use double-quotes or json module will fail
 # NOTE2: Do not check the .json file into public git!
-adminpageconf = json.loads(file('adminpageconf.json').read().strip())
+adminpageconf = None
+try:
+    adminpageconf = file('adminpageconf.json').read().strip()
+except Exception,e:
+    logger.log(logging.INFO,"ERROR reading adminpageconf.json: "+str(e))
+    logger.log(logging.INFO," *** WARN: adminpageconf.json could not be read. Creating one with default values")
+    adminpageconf = '{"username":"admin","password":"opensesame"}'
+    fd = open('adminpageconf.json','w')
+    fd.write(adminpageconf)
+    fd.close()
+adminpageconf = json.loads(adminpageconf)
 admin_username = str(adminpageconf['username']) 
 admin_password = str(adminpageconf['password']) 
 
@@ -46,7 +56,7 @@ class AdminPage(resource.Resource):
             actual_auth = request.getAllHeaders()['authorization'].replace("Basic ","").strip()
             if actual_auth == expected_auth:
                 if actual_auth == 'YWRtaW46b3BlbnNlc2FtZQ==':
-                    error_message = ( 'Do not use the values from the example user & pass'
+                    error_message = ( 'You must change the default values in adminpageconf.json'
                     '<a href="http://%20:%20@'+request.getHeader('host')+'">[LOG OUT]</a>' )
                     response_code = 500
                 else:
