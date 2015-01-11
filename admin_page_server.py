@@ -1,7 +1,3 @@
-#Make sure you change the password to something else and don't commit it to public github!
-admin_username = "admin"
-admin_password = "opensesame"
-
 from twisted.web import server, resource
 from twisted.internet import reactor
 from twisted.internet.error import ReactorAlreadyRunning
@@ -24,6 +20,16 @@ logger_filename = "admin_page.log"
 logger = utils.create_logger(logger_name, logger_filename, -1, logger_output_to_console, logger_output_to_file)
 
 
+#Example of adminpageconf.json
+#
+# {"username":"admin","password":"opensesame"}
+#
+# NOTE: Must use double-quotes or json module will fail
+# NOTE2: Do not check the .json file into public git!
+adminpageconf = json.loads(file('adminpageconf.json').read().strip())
+admin_username = str(adminpageconf['username']) 
+admin_password = str(adminpageconf['password']) 
+
 class AdminPage(resource.Resource):
     isLeaf = True
 
@@ -40,7 +46,7 @@ class AdminPage(resource.Resource):
             actual_auth = request.getAllHeaders()['authorization'].replace("Basic ","").strip()
             if actual_auth == expected_auth:
                 if actual_auth == 'YWRtaW46b3BlbnNlc2FtZQ==':
-                    error_message = ( 'You must change the default login info'
+                    error_message = ( 'Do not use the values from the example user & pass'
                     '<a href="http://%20:%20@'+request.getHeader('host')+'">[LOG OUT]</a>' )
                     response_code = 500
                 else:
@@ -55,9 +61,66 @@ class AdminPage(resource.Resource):
             request.write(error_message)
         return is_auth
 
+    def update_whitelist(self, request):
+        address = request.getClientIP()
+        dbconn = sqlite3.connect('gpcm.db')
+        userid = request.args['userid'][0].strip()
+        gameid = request.args['gameid'][0].upper().strip()
+        macadr = request.args['macadr'][0].strip()
+        actiontype = request.args['actiontype'][0]
+        if not userid.isdigit() or not gameid.isalnum() or not macadr.isalnum():
+            request.setResponseCode(500)
+            logger.log(logging.INFO,address+" Bad data "+userid+" "+gameid+" "+macadr)
+            return "Bad data"
+        if actiontype == 'add':
+            dbconn.cursor().execute('insert into whitelist values(?,?,?)',(userid,gameid,macadr))
+            responsedata = "Added macadr=%s for gameid=%s, userid=%s" %  (macadr,gameid,userid)
+        else:
+            dbconn.cursor().execute('delete from whitelist where userid=? and gameid=? and macadr=?',(userid,gameid,macadr))
+            responsedata = "Removed macadr=%s for gameid=%s, userid=%s" %  (macadr,gameid,userid)
+        dbconn.commit()
+        dbconn.close()
+        logger.log(logging.INFO,address+" "+responsedata)
+        request.setHeader("Content-Type", "text/html; charset=utf-8")
+        return responsedata.encode('utf-8')
+
+    def render_whitelist(self, request):
+        address = request.getClientIP()
+        dbconn = sqlite3.connect('gpcm.db')
+        dbconn.cursor().execute('CREATE TABLE IF NOT EXISTS whitelist (userid TEXT, gameid TEXT, macadr TEXT)')
+        logger.log(logging.INFO,address+" Viewed whitelist")
+        responsedata = ("<html><meta charset='utf-8'>\r\n"
+            "<title>altwfc admin page - WhiteList</title>"
+            '<a href="http://%20:%20@'+request.getHeader('host')+'">[CLICK HERE TO LOG OUT]</a>'
+            "<form action='updatewhitelist' method='POST'>"
+            "userid:<input type='text' name='userid'>\r\n"
+            "gameid:<input type='text' name='gameid'>\r\n"
+            "macadr:<input type='text' name='macadr'>\r\n"
+            "<input type='hidden' name='actiontype' value='add'>\r\n"
+            "<input type='submit' value='Add to whitelist'></form>\r\n"
+            "<table border='1'>"
+            "<tr><td>userid</td><td>gameid</td><td>macadr</td></tr>\r\n")
+        for row in dbconn.cursor().execute("select * from whitelist"):
+            userid = str(row[0])
+            gameid = str(row[1])
+            macadr = str(row[2])
+            responsedata += ("<tr><td>"+userid+"</td><td>"+gameid+"</td><td>"+macadr+"</td>"
+                "<td><form action='updatewhitelist' method='POST'>"
+                "<input type='hidden' name='userid' value='"+userid+"'>"
+                "<input type='hidden' name='gameid' value='"+gameid+"'>"
+                "<input type='hidden' name='macadr' value='"+macadr+"'>"
+                "<input type='hidden' name='actiontype' value='remove'>\r\n"
+                "<input type='submit' value='Remove from whitelist'></form></td></tr>\r\n")
+        responsedata += "</table></html>" 
+        dbconn.close()
+        request.setHeader("Content-Type", "text/html; charset=utf-8")
+        return responsedata.encode('utf-8')
+
     def render_GET(self, request):
         if not self.is_authorized(request):
             return ""
+        if request.path == "/whitelist":
+            return self.render_whitelist(request)
         if request.path != "/banhammer":
             request.setResponseCode(500)
             return "wrong url path"
@@ -75,9 +138,12 @@ class AdminPage(resource.Resource):
             'order by users.gameid '
             '') 
         dbconn = sqlite3.connect('gpcm.db')
-        responsedata = ("<html><meta charset='utf-8'><table border='1'>\r\n"
+        responsedata = ("<html><meta charset='utf-8'>\r\n"
             "<title>altwfc admin page</title>"
             '<a href="http://%20:%20@'+request.getHeader('host')+'">[CLICK HERE TO LOG OUT]</a>'
+            "<br><br>"
+            '<a href="http://'+request.getHeader('host')+'/whitelist">WhiteList</a>'
+            "<table border='1'>" 
             "<tr><td>ingamesn or devname</td><td>gameid</td>"
             "<td>Enabled</td><td>newest dwc_pid</td>"
             "<td>gsbrcd</td><td>userid</td></tr>\r\n")
@@ -114,14 +180,14 @@ class AdminPage(resource.Resource):
                 "<input type='hidden' name='userid' value='"+userid+"'>"
                 "<input type='hidden' name='gameid' value='"+gameid+"'>"
                 "<input type='hidden' name='ingamesn' value='"+ingamesn+"'>"
-                "<input type='submit' value='Ban'></form></td>")
+                "<input type='submit' value='Ban'></form></td></tr>")
             else:
                 responsedata += ("<td><form action='enableuser' method='POST'>"
                 "<input type='hidden' name='userid' value='"+userid+"'>"
                 "<input type='hidden' name='gameid' value='"+gameid+"'>"
                 "<input type='hidden' name='ingamesn' value='"+ingamesn+"'>"
-                "<input type='submit' value='----- unban -----'></form></td>")
-        responsedata += "</tr></table></html>" 
+                "<input type='submit' value='----- unban -----'></form></td></tr>")
+        responsedata += "</table></html>" 
         dbconn.close()
         request.setHeader("Content-Type", "text/html; charset=utf-8")
         return responsedata.encode('utf-8')
@@ -129,6 +195,8 @@ class AdminPage(resource.Resource):
     def render_POST(self, request):
         if not self.is_authorized(request):
             return ""
+        if request.path == "/updatewhitelist":
+            return self.update_whitelist(request)
         if request.path != "/enableuser" and request.path != "/disableuser":
             request.setResponseCode(500)
             return "wrong url path"
@@ -156,7 +224,8 @@ class AdminPage(resource.Resource):
         dbconn.commit()
         dbconn.close()
         logger.log(logging.INFO,address+" "+responsedata)
-        return responsedata
+        request.setHeader("Content-Type", "text/html; charset=utf-8")
+        return responsedata.encode('utf-8')
 
 
 class AdminPageServer(object):

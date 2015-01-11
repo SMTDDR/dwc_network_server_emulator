@@ -198,14 +198,16 @@ class GamespyDatabase(object):
 
         return profileid
 
-    def create_user(self, userid, password, email, uniquenick, gsbrcd, console, csnum, cfc, bssid, devname, birth, gameid):
+    def create_user(self, userid, password, email, uniquenick, gsbrcd, console, csnum, cfc, bssid, devname, birth, gameid, macadr):
 
         #Check for console ban
         with Transaction(self.conn) as tx:
-            row = tx.queryone("SELECT * FROM users WHERE userid = ? and gameid = ? and enabled = 0 limit 1", (userid, gameid))
+            row = tx.queryone("SELECT * FROM users WHERE userid = ? and gameid = ? and enabled = 0 "
+                "and gameid not in (select gameid from whitelist where gameid=? and macadr=?) limit 1"
+                ,(userid, gameid, gameid, macadr))
             r = self.get_dict(row)
         if r != None:
-            logger.log(logging.INFO, "--- REJECTING BANNED CONSOLE --- userid=%s,gameid=%s", userid,gameid)
+            logger.log(logging.INFO, "--- REJECTING BANNED CONSOLE --- userid=%s,gameid=%s,macadr=%s", userid,gameid,macadr)
             return None
         
         if self.check_user_exists(userid, gsbrcd) == 0:
