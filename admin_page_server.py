@@ -92,7 +92,7 @@ class AdminPage(resource.Resource):
         dbconn.close()
         logger.log(logging.INFO,address+" "+responsedata)
         request.setHeader("Content-Type", "text/html; charset=utf-8")
-        return responsedata.encode('utf-8')
+        return responsedata
 
     def render_whitelist(self, request):
         address = request.getClientIP()
@@ -124,7 +124,7 @@ class AdminPage(resource.Resource):
         responsedata += "</table></html>" 
         dbconn.close()
         request.setHeader("Content-Type", "text/html; charset=utf-8")
-        return responsedata.encode('utf-8')
+        return responsedata
 
     def render_GET(self, request):
         if not self.is_authorized(request):
@@ -235,7 +235,7 @@ class AdminPage(resource.Resource):
         dbconn.close()
         logger.log(logging.INFO,address+" "+responsedata)
         request.setHeader("Content-Type", "text/html; charset=utf-8")
-        return responsedata.encode('utf-8')
+        return responsedata
 
 
 class AdminPageServer(object):
