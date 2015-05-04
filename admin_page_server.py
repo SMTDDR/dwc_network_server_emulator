@@ -71,56 +71,46 @@ class AdminPage(resource.Resource):
             request.write(error_message)
         return is_auth
 
-    def update_whitelist(self, request):
+    def update_banlist(self, request):
         address = request.getClientIP()
         dbconn = sqlite3.connect('gpcm.db')
-        userid = request.args['userid'][0].strip()
         gameid = request.args['gameid'][0].upper().strip()
-        macadr = request.args['macadr'][0].strip()
-        actiontype = request.args['actiontype'][0]
-        if not userid.isdigit() or not gameid.isalnum() or not macadr.isalnum():
+        ipaddr = request.args['ipaddr'][0].strip()
+        actiontype = request.args['action'][0]
+        if not gameid.isalnum(): 
             request.setResponseCode(500)
-            logger.log(logging.INFO,address+" Bad data "+userid+" "+gameid+" "+macadr)
+            logger.log(logging.INFO,address+" Bad data "+gameid+" "+ipaddr)
             return "Bad data"
-        if actiontype == 'add':
-            dbconn.cursor().execute('insert into whitelist values(?,?,?)',(userid,gameid,macadr))
-            responsedata = "Added macadr=%s for gameid=%s, userid=%s" %  (macadr,gameid,userid)
+        if actiontype == 'ban':
+            dbconn.cursor().execute('insert into banned values(?,?)',(gameid[:-1],ipaddr))
+            responsedata = "Added gameid=%s, ipaddr=%s" %  (gameid[:-1],ipaddr)
         else:
-            dbconn.cursor().execute('delete from whitelist where userid=? and gameid=? and macadr=?',(userid,gameid,macadr))
-            responsedata = "Removed macadr=%s for gameid=%s, userid=%s" %  (macadr,gameid,userid)
+            dbconn.cursor().execute('delete from banned where gameid=? and ipaddr=?',(gameid[:-1],ipaddr))
+            responsedata = "Removed gameid=%s, ipaddr=%s" %  (gameid[:-1],ipaddr)
         dbconn.commit()
         dbconn.close()
         logger.log(logging.INFO,address+" "+responsedata)
         request.setHeader("Content-Type", "text/html; charset=utf-8")
         return responsedata
 
-    def render_whitelist(self, request):
+    def render_banlist(self, request):
         address = request.getClientIP()
         dbconn = sqlite3.connect('gpcm.db')
-        dbconn.cursor().execute('CREATE TABLE IF NOT EXISTS whitelist (userid TEXT, gameid TEXT, macadr TEXT)')
-        logger.log(logging.INFO,address+" Viewed whitelist")
+        logger.log(logging.INFO,address+" Viewed banlist")
         responsedata = ("<html><meta charset='utf-8'>\r\n"
-            "<title>altwfc admin page - WhiteList</title>"
+            "<title>altwfc admin page - banList</title>"
             '<a href="http://%20:%20@'+request.getHeader('host')+'">[CLICK HERE TO LOG OUT]</a>'
-            "<form action='updatewhitelist' method='POST'>"
-            "userid:<input type='text' name='userid'>\r\n"
-            "gameid:<input type='text' name='gameid'>\r\n"
-            "macadr:<input type='text' name='macadr'>\r\n"
-            "<input type='hidden' name='actiontype' value='add'>\r\n"
-            "<input type='submit' value='Add to whitelist'></form>\r\n"
             "<table border='1'>"
-            "<tr><td>userid</td><td>gameid</td><td>macadr</td></tr>\r\n")
-        for row in dbconn.cursor().execute("select * from whitelist"):
-            userid = str(row[0])
-            gameid = str(row[1])
-            macadr = str(row[2])
-            responsedata += ("<tr><td>"+userid+"</td><td>"+gameid+"</td><td>"+macadr+"</td>"
-                "<td><form action='updatewhitelist' method='POST'>"
-                "<input type='hidden' name='userid' value='"+userid+"'>"
+            "<tr><td>gameid</td><td>ipAddr</td></tr>\r\n")
+        for row in dbconn.cursor().execute("select * from banned"):
+            gameid = str(row[0])
+            ipaddr = str(row[1])
+            responsedata += ("<tr><td>"+gameid+"</td><td>"+ipaddr+"</td>"
+                "<td><form action='updatebanlist' method='POST'>"
                 "<input type='hidden' name='gameid' value='"+gameid+"'>"
-                "<input type='hidden' name='macadr' value='"+macadr+"'>"
-                "<input type='hidden' name='actiontype' value='remove'>\r\n"
-                "<input type='submit' value='Remove from whitelist'></form></td></tr>\r\n")
+                "<input type='hidden' name='ipaddr' value='"+ipaddr+"'>"
+                "<input type='hidden' name='action' value='unban'>\r\n"
+                "<input type='submit' value='----- UNBAN -----'></form></td></tr>\r\n")
         responsedata += "</table></html>" 
         dbconn.close()
         request.setHeader("Content-Type", "text/html; charset=utf-8")
@@ -129,8 +119,8 @@ class AdminPage(resource.Resource):
     def render_GET(self, request):
         if not self.is_authorized(request):
             return ""
-        if request.path == "/whitelist":
-            return self.render_whitelist(request)
+        if request.path == "/banlist":
+            return self.render_banlist(request)
         if request.path != "/banhammer":
             request.setResponseCode(500)
             return "wrong url path"
@@ -148,15 +138,18 @@ class AdminPage(resource.Resource):
             'order by users.gameid '
             '') 
         dbconn = sqlite3.connect('gpcm.db')
+        banned_list = []
+        for row in dbconn.cursor().execute("SELECT * FROM BANNED"):
+            banned_list.append(str(row[0])+":"+str(row[1]))
         responsedata = ("<html><meta charset='utf-8'>\r\n"
             "<title>altwfc admin page</title>"
             '<a href="http://%20:%20@'+request.getHeader('host')+'">[CLICK HERE TO LOG OUT]</a>'
             "<br><br>"
-            '<a href="http://'+request.getHeader('host')+'/whitelist">WhiteList</a>'
+            '<a href="http://'+request.getHeader('host')+'/banlist">BanList</a>'
             "<table border='1'>" 
             "<tr><td>ingamesn or devname</td><td>gameid</td>"
             "<td>Enabled</td><td>newest dwc_pid</td>"
-            "<td>gsbrcd</td><td>userid</td></tr>\r\n")
+            "<td>gsbrcd</td><td>userid</td><td>ipAddr</td></tr>\r\n")
         for row in dbconn.cursor().execute(sqlstatement):
             dwc_pid = str(row[0])
             enabled = str(row[1])
@@ -165,6 +158,7 @@ class AdminPage(resource.Resource):
             is_console = int(str(row[4]))
             userid = str(row[5])
             gsbrcd = str(nasdata['gsbrcd'])
+            ipaddr = str(nasdata['ipaddr'])
             ingamesn = ''
             if 'ingamesn' in nasdata:
                 ingamesn = str(nasdata['ingamesn'])
@@ -185,18 +179,19 @@ class AdminPage(resource.Resource):
             responsedata += "<td>"+dwc_pid+"</td>"
             responsedata += "<td>"+gsbrcd+"</td>"
             responsedata += "<td>"+userid+"</td>"
-            if enabled == "1":
-                responsedata += ("<td><form action='disableuser' method='POST'>"
-                "<input type='hidden' name='userid' value='"+userid+"'>"
+            responsedata += "<td>"+ipaddr+"</td>"
+            if gameid[:-1]+":"+ipaddr in banned_list:
+                responsedata += ("<td><form action='updatebanlist' method='POST'>"
                 "<input type='hidden' name='gameid' value='"+gameid+"'>"
-                "<input type='hidden' name='ingamesn' value='"+ingamesn+"'>"
-                "<input type='submit' value='Ban'></form></td></tr>")
-            else:
-                responsedata += ("<td><form action='enableuser' method='POST'>"
-                "<input type='hidden' name='userid' value='"+userid+"'>"
-                "<input type='hidden' name='gameid' value='"+gameid+"'>"
-                "<input type='hidden' name='ingamesn' value='"+ingamesn+"'>"
+                "<input type='hidden' name='ipaddr' value='"+ipaddr+"'>"
+                "<input type='hidden' name='action' value='unban'>"
                 "<input type='submit' value='----- unban -----'></form></td></tr>")
+            else:
+                responsedata += ("<td><form action='updatebanlist' method='POST'>"
+                "<input type='hidden' name='gameid' value='"+gameid+"'>"
+                "<input type='hidden' name='ipaddr' value='"+ipaddr+"'>"
+                "<input type='hidden' name='action' value='ban'>"
+                "<input type='submit' value='Ban'></form></td></tr>")
         responsedata += "</table></html>" 
         dbconn.close()
         request.setHeader("Content-Type", "text/html; charset=utf-8")
@@ -205,38 +200,10 @@ class AdminPage(resource.Resource):
     def render_POST(self, request):
         if not self.is_authorized(request):
             return ""
-        if request.path == "/updatewhitelist":
-            return self.update_whitelist(request)
-        if request.path != "/enableuser" and request.path != "/disableuser":
-            request.setResponseCode(500)
-            return "wrong url path"
-        address = request.getClientIP()
-        responsedata = ""
-        userid = request.args['userid'][0]
-        gameid = request.args['gameid'][0].upper()
-        ingamesn = request.args['ingamesn'][0]
-
-        if not userid.isdigit() or not gameid.isalnum():
-            logger.log(logging.INFO,address+" Bad data "+userid+" "+gameid)
-            return "Bad data"
-
-        dbconn = sqlite3.connect('gpcm.db')
-        if request.path == "/enableuser":
-            dbconn.cursor().execute('update users set enabled=1 '
-            'where gameid=? and userid=?',(gameid,userid))
-            responsedata = "Enabled %s with gameid=%s, userid=%s" % \
-            (ingamesn,gameid,userid)
-        else:
-            dbconn.cursor().execute('update users set enabled=0 '
-            'where gameid=? and userid=?',(gameid,userid))
-            responsedata = "Disabled %s with gameid=%s, userid=%s" % \
-            (ingamesn,gameid,userid)
-        dbconn.commit()
-        dbconn.close()
-        logger.log(logging.INFO,address+" "+responsedata)
-        request.setHeader("Content-Type", "text/html; charset=utf-8")
-        return responsedata
-
+        if request.path == "/updatebanlist":
+            return self.update_banlist(request)
+        request.setResponseCode(500)
+        return "wrong url path"
 
 class AdminPageServer(object):
     def start(self):

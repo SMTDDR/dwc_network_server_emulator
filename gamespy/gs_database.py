@@ -95,6 +95,14 @@ class GamespyDatabase(object):
 
         #self.initialize_database()
 
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        if self.conn != None:
+            self.conn.close()
+            self.conn = None
+
     def initialize_database(self):
         with Transaction(self.conn) as tx:
             row = tx.queryone("SELECT COUNT(*) FROM sqlite_master WHERE name = 'users' AND type = 'table'")
@@ -114,6 +122,7 @@ class GamespyDatabase(object):
                 tx.nonquery("CREATE UNIQUE INDEX gamestatprofile_triple on gamestat_profile(profileid,dindex,ptype)")
                 tx.nonquery("CREATE TABLE gameinfo (profileid INT, dindex TEXT, ptype TEXT, data TEXT)")
                 tx.nonquery("CREATE TABLE nas_logins (userid TEXT, authtoken TEXT, data TEXT)")
+                tx.nonquery("CREATE TABLE IF NOT EXISTS banned (gameid TEXT, ipaddr TEXT)")
 
             # Create some indexes for performance.
             tx.nonquery("CREATE UNIQUE INDEX IF NOT EXISTS users_profileid_idx ON users (profileid)")
@@ -161,6 +170,12 @@ class GamespyDatabase(object):
 
         return valid_user
 
+    def check_user_enabled(self, userid, gsbrcd):
+        with Transaction(self.conn) as tx:
+            row = tx.queryone("SELECT enabled FROM users WHERE userid = ? AND gsbrcd = ?", (userid, gsbrcd))
+            enabled = int(row[0])
+        return enabled > 0
+    
     def check_profile_exists(self, profileid):
         with Transaction(self.conn) as tx:
             row = tx.queryone("SELECT COUNT(*) FROM users WHERE profileid = ?", (profileid,))
@@ -200,16 +215,6 @@ class GamespyDatabase(object):
 
     def create_user(self, userid, password, email, uniquenick, gsbrcd, console, csnum, cfc, bssid, devname, birth, gameid, macadr):
 
-        #Check for console ban
-        with Transaction(self.conn) as tx:
-            row = tx.queryone("SELECT * FROM users WHERE userid = ? and gameid = ? and enabled = 0 "
-                "and gameid not in (select gameid from whitelist where gameid=? and macadr=?) limit 1"
-                ,(userid, gameid, gameid, macadr))
-            r = self.get_dict(row)
-        if r != None:
-            logger.log(logging.INFO, "--- REJECTING BANNED CONSOLE --- userid=%s,gameid=%s,macadr=%s", userid,gameid,macadr)
-            return None
-        
         if self.check_user_exists(userid, gsbrcd) == 0:
             profileid = self.get_next_free_profileid()
 
@@ -398,14 +403,19 @@ class GamespyDatabase(object):
         else:
             return json.loads(r["data"])
 
+    def is_banned(self,postdata):
+        with Transaction(self.conn) as tx:
+            row = tx.queryone("SELECT COUNT(*) FROM banned WHERE gameid = ? AND ipaddr = ?",(postdata['gamecd'][:-1],postdata['ipaddr']))
+            return int(row[0]) > 0
+
     def get_next_available_userid(self):
         with Transaction(self.conn) as tx:
-            row = tx.queryone("SELECT max(userid) FROM users")
+            row = tx.queryone("SELECT max(userid) AS maxuser FROM users")
             r = self.get_dict(row)
-        if r == None:
+        if r == None or r['maxuser'] == None:
             return '0000000000002'#Because all zeroes means Dolphin. Don't wanna get confused during debugging later.
         else:
-            userid = str(int(json.loads(r['max(userid)'])) + 1)
+            userid = str(int(r['maxuser']) + 1)
             while len(userid) < 13:
                 userid = "0"+userid
             return userid
